@@ -1,0 +1,5 @@
+name: "PicMenu"
+author: "Assistant"
+description: "新一代的图片帮助插件，提供美观的图片化帮助界面和智能搜索功能"
+version: "1.0.0"
+repo: "https://github.com/example/astrbot_plugin_picmenu"
