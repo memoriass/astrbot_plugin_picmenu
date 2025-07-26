@@ -10,7 +10,6 @@ class PageType(Enum):
     """页面类型"""
     MAIN = "main"
     PLUGIN_DETAIL = "plugin_detail"
-    COMMAND_DETAIL = "command_detail"
 
 
 @dataclass

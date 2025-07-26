@@ -249,11 +249,8 @@ class PicMenuPlugin(Star):
                 async for result in self.show_plugin_detail(event, plugin_query, plugins, show_hidden, is_admin):
                     yield result
             else:
-                # 显示命令详情
-                async for result in self.show_command_detail(
-                    event, plugin_query, command_query, plugins, show_hidden, is_admin
-                ):
-                    yield result
+                # 由于AstrBot命令系统限制，无法正确解析多参数命令，暂不支持三级菜单
+                yield event.plain_result(f"❌ 暂不支持命令详情查看，请使用 /help {plugin_query} 查看插件详情")
 
         except Exception as e:
             logger.error(f"处理帮助命令失败: {e}")
@@ -343,72 +340,7 @@ class PicMenuPlugin(Star):
             logger.error(f"显示插件详情失败: {e}")
             yield event.plain_result("❌ 生成插件详情时出现错误")
 
-    async def show_command_detail(
-        self,
-        event: AstrMessageEvent,
-        plugin_query: str,
-        command_query: str,
-        plugins: List[PluginInfo],
-        show_hidden: bool,
-        is_admin: bool = False,
-    ):
-        """显示命令详情"""
-        try:
-            plugin = await self.get_plugin_by_query(plugin_query, plugins)
-            if not plugin:
-                yield event.plain_result(f"❌ 未找到插件: {plugin_query}")
-                return
 
-            command = await self.get_command_by_query(command_query, plugin.commands)
-            if not command:
-                yield event.plain_result(
-                    f"❌ 在插件 {plugin.name} 中未找到命令: {command_query}"
-                )
-                return
-
-            # 检查管理员权限
-            if command.admin_only and not is_admin:
-                yield event.plain_result(f"❌ 权限不足，无法查看管理员命令: {command.name}")
-                return
-
-            # 生成缓存键，包含管理员状态
-            cache_key = self.get_cache_key(
-                "command",
-                plugin.name,
-                command.name,
-                show_hidden,
-                is_admin,
-                self.config.get("theme", "light"),
-            )
-
-            # 尝试获取缓存
-            cached_image = self.get_cached_image(cache_key)
-            if cached_image:
-                yield event.chain_result([Comp.Image.fromBytes(cached_image)])
-                return
-
-            # 生成帮助页面
-            help_page = HelpPage(
-                title=f"⚡ {command.name}",
-                plugins=[plugin],
-                show_hidden=show_hidden,
-                page_type="command_detail",
-            )
-
-            # 渲染图片
-            image_data = await self.renderer.render_command_detail(
-                help_page, plugin, command
-            )
-
-            # 缓存图片
-            self.cache_image(cache_key, image_data)
-
-            # 发送图片
-            yield event.chain_result([Comp.Image.fromBytes(image_data)])
-
-        except Exception as e:
-            logger.error(f"显示命令详情失败: {e}")
-            yield event.plain_result("❌ 生成命令详情时出现错误")
 
     @filter.command("帮助", priority=1000)  # 设置极高优先级
     async def help_alias(self, event: AstrMessageEvent, query: str = ""):
