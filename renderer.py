@@ -289,17 +289,24 @@ class HelpImageRenderer:
             draw.text((x + width - cmd_width - 10, y + height - cmd_height - 10), 
                      cmd_text, fill=theme.primary_color, font=cmd_font)
     
-    async def render_plugin_detail(self, help_page: HelpPage, plugin: PluginInfo) -> bytes:
+    async def render_plugin_detail(self, help_page: HelpPage, plugin: PluginInfo, is_admin: bool = False) -> bytes:
         """渲染插件详情"""
         try:
             config = self.render_config
             theme = config.theme or ThemeConfig.light_theme()  # 确保theme不为None
-            
-            # 计算内容高度
+
+            # 根据管理员权限过滤命令
+            commands = plugin.get_visible_commands(help_page.show_hidden, is_admin)
+
+            # 计算双排布局
+            cols = 2
+            rows = math.ceil(len(commands) / cols) if commands else 0
+            card_width = (config.width - config.padding * 2 - config.card_spacing * (cols - 1)) // cols
+            card_height = 80  # 命令卡片高度
+
+            # 计算总高度
             header_height = 120
-            command_height = 60
-            commands = plugin.get_visible_commands(help_page.show_hidden)
-            content_height = len(commands) * command_height + (len(commands) - 1) * 10
+            content_height = rows * card_height + (rows - 1) * config.card_spacing if rows > 0 else 50
             total_height = header_height + content_height + config.padding * 2
             
             # 创建图片
@@ -333,9 +340,9 @@ class HelpImageRenderer:
                     draw.text((line_x, info_y), line, fill=theme.secondary_color, font=info_font)
                     info_y += line_height + 2
             
-            # 绘制命令列表
+            # 绘制命令列表（双排布局）
             cmd_y = header_height + config.padding
-            
+
             if not commands:
                 no_cmd_text = "该插件暂无可用命令"
                 no_cmd_font = self._get_font(config.font_size)
@@ -344,9 +351,13 @@ class HelpImageRenderer:
                 draw.text((no_cmd_x, cmd_y), no_cmd_text, fill=theme.secondary_color, font=no_cmd_font)
             else:
                 for i, command in enumerate(commands):
-                    await self._draw_command_item(draw, command, config.padding, cmd_y, 
-                                                config.width - config.padding * 2, command_height, i + 1)
-                    cmd_y += command_height + 10
+                    row = i // cols
+                    col = i % cols
+
+                    x = config.padding + col * (card_width + config.card_spacing)
+                    y = cmd_y + row * (card_height + config.card_spacing)
+
+                    await self._draw_command_card(draw, command, x, y, card_width, card_height, i + 1)
             
             # 保存为字节流
             output = io.BytesIO()
@@ -401,7 +412,51 @@ class HelpImageRenderer:
             self._draw_rectangle(draw, (tag_x - 5, tag_y - 2, tag_x + admin_width + 5, tag_y + admin_height + 2), theme.primary_color)
             
             draw.text((tag_x, tag_y), admin_text, fill=theme.background_color, font=tag_font)
-    
+
+    async def _draw_command_card(self, draw, command: CommandInfo,
+                                x: int, y: int, width: int, height: int, index: int):
+        """绘制命令卡片（双排布局样式）"""
+        config = self.render_config
+        theme = config.theme or ThemeConfig.light_theme()
+
+        # 绘制卡片背景
+        self._draw_rectangle(draw, (x, y, x + width, y + height), theme.card_background, theme.border_color)
+
+        # 绘制序号
+        index_font = self._get_font(config.subtitle_font_size)
+        index_text = str(index)
+        draw.text((x + 10, y + 10), index_text, fill=theme.primary_color, font=index_font)
+
+        # 绘制命令名
+        name_font = self._get_font(config.font_size)
+        name_text = f"/{command.name}"
+        draw.text((x + 40, y + 10), name_text, fill=theme.text_color, font=name_font)
+
+        # 绘制描述
+        if command.description:
+            desc_font = self._get_font(config.subtitle_font_size)
+            desc_text = command.description
+            desc_lines = self._wrap_text(desc_text, desc_font, width - 20)
+
+            desc_y = y + 40
+            for line in desc_lines[:2]:  # 最多显示2行
+                if desc_y + config.subtitle_font_size > y + height - 20:
+                    break
+                draw.text((x + 10, desc_y), line, fill=theme.secondary_color, font=desc_font)
+                desc_y += config.subtitle_font_size + 2
+
+        # 绘制管理员标签
+        if command.admin_only:
+            tag_font = self._get_font(config.subtitle_font_size - 2)
+            admin_text = "管理员"
+            admin_width, admin_height = self._calculate_text_size(admin_text, tag_font)
+            tag_x = x + width - admin_width - 10
+            tag_y = y + height - admin_height - 10
+
+            # 绘制标签背景
+            self._draw_rectangle(draw, (tag_x - 3, tag_y - 2, tag_x + admin_width + 3, tag_y + admin_height + 2), theme.primary_color)
+            draw.text((tag_x, tag_y), admin_text, fill=theme.background_color, font=tag_font)
+
     async def render_command_detail(self, help_page: HelpPage, plugin: PluginInfo, command: CommandInfo) -> bytes:
         """渲染命令详情"""
         try:

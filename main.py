@@ -231,26 +231,27 @@ class PicMenuPlugin(Star):
         logger.info(f"PicMenu拦截help命令: query='{query}'")
         try:
             user_id = event.get_sender_id()
+            is_admin = self.is_admin(user_id)
             show_hidden = self.can_see_hidden(user_id)
 
-            # 收集插件信息
-            plugins = await self.collector.collect_plugins(show_hidden)
+            # 收集插件信息，传递管理员权限
+            plugins = await self.collector.collect_plugins(show_hidden, is_admin)
 
             # 解析查询参数
             plugin_query, command_query = self.parse_help_query(query)
 
             if not plugin_query:
                 # 显示主页
-                async for result in self.show_main_page(event, plugins, show_hidden):
+                async for result in self.show_main_page(event, plugins, show_hidden, is_admin):
                     yield result
             elif not command_query:
                 # 显示插件详情
-                async for result in self.show_plugin_detail(event, plugin_query, plugins, show_hidden):
+                async for result in self.show_plugin_detail(event, plugin_query, plugins, show_hidden, is_admin):
                     yield result
             else:
                 # 显示命令详情
                 async for result in self.show_command_detail(
-                    event, plugin_query, command_query, plugins, show_hidden
+                    event, plugin_query, command_query, plugins, show_hidden, is_admin
                 ):
                     yield result
 
@@ -259,13 +260,13 @@ class PicMenuPlugin(Star):
             yield event.plain_result("❌ 生成帮助信息时出现错误")
 
     async def show_main_page(
-        self, event: AstrMessageEvent, plugins: List[PluginInfo], show_hidden: bool
+        self, event: AstrMessageEvent, plugins: List[PluginInfo], show_hidden: bool, is_admin: bool = False
     ):
         """显示主页"""
         try:
-            # 生成缓存键
+            # 生成缓存键，包含管理员状态
             cache_key = self.get_cache_key(
-                "main", len(plugins), show_hidden, self.config.get("theme", "light")
+                "main", len(plugins), show_hidden, is_admin, self.config.get("theme", "light")
             )
 
             # 尝试获取缓存
@@ -301,6 +302,7 @@ class PicMenuPlugin(Star):
         plugin_query: str,
         plugins: List[PluginInfo],
         show_hidden: bool,
+        is_admin: bool = False,
     ):
         """显示插件详情"""
         try:
@@ -309,9 +311,9 @@ class PicMenuPlugin(Star):
                 yield event.plain_result(f"❌ 未找到插件: {plugin_query}")
                 return
 
-            # 生成缓存键
+            # 生成缓存键，包含管理员状态
             cache_key = self.get_cache_key(
-                "plugin", plugin.name, show_hidden, self.config.get("theme", "light")
+                "plugin", plugin.name, show_hidden, is_admin, self.config.get("theme", "light")
             )
 
             # 尝试获取缓存
@@ -329,7 +331,7 @@ class PicMenuPlugin(Star):
             )
 
             # 渲染图片
-            image_data = await self.renderer.render_plugin_detail(help_page, plugin)
+            image_data = await self.renderer.render_plugin_detail(help_page, plugin, is_admin)
 
             # 缓存图片
             self.cache_image(cache_key, image_data)
@@ -348,6 +350,7 @@ class PicMenuPlugin(Star):
         command_query: str,
         plugins: List[PluginInfo],
         show_hidden: bool,
+        is_admin: bool = False,
     ):
         """显示命令详情"""
         try:
@@ -363,12 +366,18 @@ class PicMenuPlugin(Star):
                 )
                 return
 
-            # 生成缓存键
+            # 检查管理员权限
+            if command.admin_only and not is_admin:
+                yield event.plain_result(f"❌ 权限不足，无法查看管理员命令: {command.name}")
+                return
+
+            # 生成缓存键，包含管理员状态
             cache_key = self.get_cache_key(
                 "command",
                 plugin.name,
                 command.name,
                 show_hidden,
+                is_admin,
                 self.config.get("theme", "light"),
             )
 

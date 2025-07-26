@@ -63,14 +63,20 @@ class PluginInfo:
     
     @property
     def command_count(self) -> int:
-        """获取命令数量"""
+        """获取命令数量（不包含隐藏命令）"""
         return len([cmd for cmd in self.commands if not cmd.hidden])
+
+    def get_command_count(self, show_hidden: bool = False, is_admin: bool = False) -> int:
+        """获取可见命令数量"""
+        return len(self.get_visible_commands(show_hidden, is_admin))
     
-    def get_visible_commands(self, show_hidden: bool = False) -> List[CommandInfo]:
+    def get_visible_commands(self, show_hidden: bool = False, is_admin: bool = False) -> List[CommandInfo]:
         """获取可见的命令列表"""
-        if show_hidden:
-            return self.commands
-        return [cmd for cmd in self.commands if not cmd.hidden]
+        commands = self.commands if show_hidden else [cmd for cmd in self.commands if not cmd.hidden]
+        # 根据管理员权限过滤
+        if not is_admin:
+            commands = [cmd for cmd in commands if not cmd.admin_only]
+        return commands
 
 
 @dataclass

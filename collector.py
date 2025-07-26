@@ -17,40 +17,40 @@ class PluginInfoCollector:
     def __init__(self, context: Context):
         self.context = context
 
-    async def collect_plugins(self, show_hidden: bool = False) -> List[PluginInfo]:
+    async def collect_plugins(self, show_hidden: bool = False, is_admin: bool = False) -> List[PluginInfo]:
         """收集所有插件信息"""
         try:
             plugins = []
-            
+
             # 根据文档，使用 context.get_all_stars() 获取所有已加载的插件
             all_stars = self.context.get_all_stars()
             logger.debug(f"获取到 {len(all_stars)} 个StarMetadata对象")
-            
+
             for star_metadata in all_stars:
                 try:
                     # 获取插件名称用于过滤
                     plugin_name = getattr(star_metadata, 'name', 'Unknown')
-                    
+
                     # 排除系统插件，只保留用户插件
                     if self._should_exclude_plugin(star_metadata, plugin_name):
                         logger.debug(f"跳过系统插件: {plugin_name}")
                         continue
-                    
-                    plugin_info = await self.collect_plugin_info(star_metadata)
+
+                    plugin_info = await self.collect_plugin_info(star_metadata, is_admin)
                     if plugin_info and (show_hidden or not plugin_info.hidden):
                         plugins.append(plugin_info)
                         logger.debug(f"收集到插件: {plugin_info.name} ({len(plugin_info.commands)} 个命令)")
-                        
+
                 except Exception as e:
                     plugin_name = getattr(star_metadata, 'name', 'Unknown')
                     logger.warning(f"收集插件信息失败: {plugin_name}: {e}")
-            
+
             # 按名称排序
             plugins.sort(key=lambda p: p.name.lower())
-            
+
             logger.info(f"收集到 {len(plugins)} 个插件信息")
             return plugins
-            
+
         except Exception as e:
             logger.error(f"收集插件信息失败: {e}")
             import traceback
@@ -100,7 +100,7 @@ class PluginInfoCollector:
             logger.debug(f"检查插件排除状态失败: {e}")
             return False
 
-    async def collect_plugin_info(self, star_metadata) -> Optional[PluginInfo]:
+    async def collect_plugin_info(self, star_metadata, is_admin: bool = False) -> Optional[PluginInfo]:
         """收集单个插件信息"""
         try:
             # 获取基本信息
@@ -108,18 +108,18 @@ class PluginInfoCollector:
             description = getattr(star_metadata, 'desc', None) or getattr(star_metadata, 'description', None)
             version = getattr(star_metadata, 'version', None)
             author = getattr(star_metadata, 'author', None)
-            
+
             logger.debug(f"收集插件信息: {name} by {author}")
-            
+
             # 获取插件实例用于命令收集
             star_instance = self._get_star_instance(star_metadata, name)
-            
+
             if not star_instance:
                 logger.warning(f"无法获取插件实例: {name}")
                 return None
             
             # 收集命令信息
-            commands = await self.collect_commands_from_registry(star_metadata, star_instance)
+            commands = await self.collect_commands_from_registry(star_metadata, star_instance, is_admin)
             
             # 判断是否为隐藏插件
             hidden = self._is_hidden_plugin(star_metadata, name)
@@ -208,7 +208,7 @@ class PluginInfoCollector:
         except Exception:
             return None
 
-    async def collect_commands_from_registry(self, star_metadata, star_instance) -> List[CommandInfo]:
+    async def collect_commands_from_registry(self, star_metadata, star_instance, is_admin: bool = False) -> List[CommandInfo]:
         """从star_handlers_registry收集插件的命令信息"""
         commands = []
 
@@ -225,7 +225,7 @@ class PluginInfoCollector:
                 # 获取插件的模块路径
                 plugin_name = getattr(star_metadata, 'name', 'Unknown')
                 module_path = self._get_module_path(star_metadata, star_instance)
-                
+
                 logger.debug(f"插件 {plugin_name} 的模块路径: {module_path}")
                 logger.debug(f"star_handlers_registry 中有 {len(star_handlers_registry)} 个处理器")
 
@@ -247,12 +247,12 @@ class PluginInfoCollector:
                                 for filter_ in handler.event_filters:
                                     if isinstance(filter_, CommandFilter):
                                         cmd = self._create_command_from_filter(filter_, handler)
-                                        if cmd:
+                                        if cmd and (is_admin or not cmd.admin_only):
                                             commands.append(cmd)
                                             logger.info(f"✅ 从registry找到命令: {filter_.command_name} for {plugin_name}")
                                     elif isinstance(filter_, CommandGroupFilter):
                                         cmd = self._create_command_group_from_filter(filter_, handler)
-                                        if cmd:
+                                        if cmd and (is_admin or not cmd.admin_only):
                                             commands.append(cmd)
                                             logger.info(f"✅ 从registry找到命令组: {filter_.group_name} for {plugin_name}")
 
@@ -266,7 +266,7 @@ class PluginInfoCollector:
             # 如果从registry获取失败，回退到方法检查
             if not commands:
                 logger.debug(f"从registry未找到命令，使用方法检查: {plugin_name}")
-                commands = await self._collect_commands_from_methods(star_instance)
+                commands = await self._collect_commands_from_methods(star_instance, is_admin)
 
             # 按命令名排序
             commands.sort(key=lambda c: c.name.lower())
@@ -358,7 +358,7 @@ class PluginInfoCollector:
             logger.debug(f"创建命令组失败: {e}")
             return None
 
-    async def _collect_commands_from_methods(self, star_instance) -> List[CommandInfo]:
+    async def _collect_commands_from_methods(self, star_instance, is_admin: bool = False) -> List[CommandInfo]:
         """从方法检查收集命令（回退方法）"""
         commands = []
 
@@ -372,7 +372,7 @@ class PluginInfoCollector:
                 # 检查是否为命令方法
                 if self._is_command_method(method):
                     command_info = self._extract_command_info_from_method(method, method_name)
-                    if command_info:
+                    if command_info and (is_admin or not command_info.admin_only):
                         commands.append(command_info)
                         logger.debug(f"从方法检查找到命令: {command_info.name}")
 
