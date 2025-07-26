@@ -2,8 +2,8 @@
 数据模型定义
 """
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class PageType(Enum):
@@ -100,41 +100,35 @@ class HelpPage:
 @dataclass
 class ThemeConfig:
     """主题配置"""
-    name: str
     background_color: str
     text_color: str
+    card_background: str
+    border_color: str
     primary_color: str
     secondary_color: str
-    border_color: str
-    card_background: str
-    header_background: str
-    
+
     @classmethod
     def light_theme(cls) -> 'ThemeConfig':
         """浅色主题"""
         return cls(
-            name="light",
-            background_color="#FFFFFF",
+            background_color="#f5f5f5",
             text_color="#333333",
-            primary_color="#007ACC",
-            secondary_color="#666666",
-            border_color="#E0E0E0",
-            card_background="#F8F9FA",
-            header_background="#F0F0F0"
+            card_background="#ffffff",
+            border_color="#e0e0e0",
+            primary_color="#007acc",
+            secondary_color="#666666"
         )
-    
+
     @classmethod
     def dark_theme(cls) -> 'ThemeConfig':
         """深色主题"""
         return cls(
-            name="dark",
-            background_color="#1E1E1E",
-            text_color="#FFFFFF",
-            primary_color="#4FC3F7",
-            secondary_color="#CCCCCC",
-            border_color="#404040",
-            card_background="#2D2D2D",
-            header_background="#252525"
+            background_color="#2b2b2b",
+            text_color="#ffffff",
+            card_background="#3c3c3c",
+            border_color="#555555",
+            primary_color="#4a9eff",
+            secondary_color="#cccccc"
         )
 
 
@@ -146,21 +140,12 @@ class RenderConfig:
     padding: int = 20
     card_spacing: int = 15
     border_radius: int = 8
-    max_plugins_per_page: int = 12
-    
-    # 字体配置
     title_font_size: int = 24
     subtitle_font_size: int = 14
-    command_font_size: int = 14
-    
-    # 颜色配置
-    theme: ThemeConfig = field(default_factory=ThemeConfig.light_theme)
-    
-    def __post_init__(self):
-        # 根据基础字体大小调整其他字体大小
-        self.title_font_size = int(self.font_size * 1.5)
-        self.subtitle_font_size = int(self.font_size * 0.875)
-        self.command_font_size = int(self.font_size * 0.875)
+    theme: ThemeConfig = None
+    max_plugins_per_page: int = 10
+    col_count: int = 2
+    col_width: int = 300
 
 
 @dataclass

@@ -3,48 +3,120 @@
 """
 import io
 import math
-from typing import List, Tuple, Optional
-from PIL import Image, ImageDraw, ImageFont
-from astrbot.api import logger
+from typing import List, Optional, Tuple, Union
 
-from .models import PluginInfo, CommandInfo, HelpPage, ThemeConfig, RenderConfig
+from astrbot.api import logger
+from PIL import Image, ImageDraw, ImageFont
+
+from .models import CommandInfo, HelpPage, PluginInfo, RenderConfig, ThemeConfig
 
 
 class HelpImageRenderer:
     """帮助图片渲染器"""
-    
+
     def __init__(self, config):
         self.config = config
         self.render_config = self._create_render_config()
+        self._font_cache = {}  # 字体缓存
+        self._available_font_path = None  # 可用字体路径缓存
         
     def _create_render_config(self) -> RenderConfig:
         """创建渲染配置"""
         theme_name = self.config.get("theme", "light")
-        theme = ThemeConfig.light_theme() if theme_name == "light" else ThemeConfig.dark_theme()
-        
+        theme = ThemeConfig.dark_theme() if theme_name == "dark" else ThemeConfig.light_theme()
+
         return RenderConfig(
             width=self.config.get("image_width", 800),
             font_size=self.config.get("font_size", 16),
             theme=theme,
-            max_plugins_per_page=self.config.get("max_plugins_per_page", 12)
+            max_plugins_per_page=self.config.get("max_plugins_per_page", 10),
+            col_count=self.config.get("col_count", 2),
+            col_width=self.config.get("col_width", 300)
         )
     
     def _get_font(self, size: int) -> ImageFont.ImageFont:
         """获取字体"""
-        try:
-            # 尝试加载系统字体
-            return ImageFont.truetype("arial.ttf", size)
-        except OSError:
+        import os
+        import platform
+
+        # 检查缓存
+        cache_key = f"{size}"
+        if cache_key in self._font_cache:
+            return self._font_cache[cache_key]
+
+        # 如果已经找到可用字体路径，直接使用
+        if self._available_font_path:
             try:
-                # Windows 中文字体
-                return ImageFont.truetype("msyh.ttc", size)
-            except OSError:
-                try:
-                    # Linux 中文字体
-                    return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size)
-                except OSError:
-                    # 使用默认字体
-                    return ImageFont.load_default()
+                font = ImageFont.truetype(self._available_font_path, size)
+                self._font_cache[cache_key] = font
+                return font
+            except Exception as e:
+                logger.warning(f"使用缓存字体路径失败: {e}")
+                self._available_font_path = None
+
+        system = platform.system()
+
+        # 定义字体路径列表，按优先级排序
+        font_paths = []
+
+        if system == "Windows":
+            # Windows 系统字体路径
+            windows_fonts = [
+                "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
+                "C:/Windows/Fonts/simhei.ttf",    # 黑体
+                "C:/Windows/Fonts/simsun.ttc",    # 宋体
+                "C:/Windows/Fonts/arial.ttf",     # Arial
+                "C:/Windows/Fonts/calibri.ttf",   # Calibri
+            ]
+            font_paths.extend(windows_fonts)
+        elif system == "Darwin":  # macOS
+            # macOS 系统字体路径
+            macos_fonts = [
+                "/System/Library/Fonts/PingFang.ttc",           # 苹方
+                "/System/Library/Fonts/Helvetica.ttc",          # Helvetica
+                "/System/Library/Fonts/Arial.ttf",              # Arial
+                "/Library/Fonts/Arial Unicode MS.ttf",          # Arial Unicode MS
+            ]
+            font_paths.extend(macos_fonts)
+        else:  # Linux
+            # Linux 系统字体路径
+            linux_fonts = [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+                "/usr/share/fonts/truetype/arphic/uming.ttc",
+            ]
+            font_paths.extend(linux_fonts)
+
+        # 尝试加载字体
+        for font_path in font_paths:
+            try:
+                if os.path.exists(font_path):
+                    logger.info(f"尝试加载字体: {font_path}")
+                    font = ImageFont.truetype(font_path, size)
+                    # 缓存成功的字体路径和字体对象
+                    self._available_font_path = font_path
+                    self._font_cache[cache_key] = font
+                    logger.info(f"成功加载字体: {font_path}")
+                    return font
+            except Exception as e:
+                logger.debug(f"加载字体失败 {font_path}: {e}")
+                continue
+
+        # 如果所有字体都加载失败，使用默认字体
+        logger.warning("所有字体加载失败，使用默认字体")
+        try:
+            font = ImageFont.load_default()
+            self._font_cache[cache_key] = font
+            return font
+        except Exception as e:
+            logger.error(f"加载默认字体也失败: {e}")
+            # 创建一个最基本的字体对象
+            font = ImageFont.load_default()
+            self._font_cache[cache_key] = font
+            return font
     
     def _calculate_text_size(self, text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
         """计算文本尺寸"""
@@ -55,52 +127,67 @@ class HelpImageRenderer:
             # 兼容旧版本 PIL
             return font.getsize(text)
     
-    def _draw_rounded_rectangle(self, draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int, int], 
-                               radius: int, fill: str, outline: str = None):
-        """绘制圆角矩形"""
-        x1, y1, x2, y2 = bbox
-        
-        # 绘制主体矩形
-        draw.rectangle([x1 + radius, y1, x2 - radius, y2], fill=fill, outline=outline)
-        draw.rectangle([x1, y1 + radius, x2, y2 - radius], fill=fill, outline=outline)
-        
-        # 绘制四个角的圆形
-        draw.pieslice([x1, y1, x1 + 2 * radius, y1 + 2 * radius], 180, 270, fill=fill, outline=outline)
-        draw.pieslice([x2 - 2 * radius, y1, x2, y1 + 2 * radius], 270, 360, fill=fill, outline=outline)
-        draw.pieslice([x1, y2 - 2 * radius, x1 + 2 * radius, y2], 90, 180, fill=fill, outline=outline)
-        draw.pieslice([x2 - 2 * radius, y2 - 2 * radius, x2, y2], 0, 90, fill=fill, outline=outline)
+    def _draw_rectangle(self, draw, bbox, fill, outline=None):
+        """绘制简单矩形"""
+        draw.rectangle(bbox, fill=fill, outline=outline)
     
     def _wrap_text(self, text: str, font: ImageFont.ImageFont, max_width: int) -> List[str]:
-        """文本换行"""
+        """文本换行 - 改进版，支持中文"""
         if not text:
             return []
-        
-        words = text.split()
+
         lines = []
-        current_line = ""
-        
-        for word in words:
-            test_line = current_line + (" " if current_line else "") + word
-            text_width, _ = self._calculate_text_size(test_line, font)
-            
-            if text_width <= max_width:
-                current_line = test_line
-            else:
-                if current_line:
-                    lines.append(current_line)
-                current_line = word
-        
-        if current_line:
-            lines.append(current_line)
-        
+
+        # 对于中文文本，需要按字符而不是按单词换行
+        if self._contains_chinese(text):
+            current_line = ""
+            for char in text:
+                test_line = current_line + char
+                text_width, _ = self._calculate_text_size(test_line, font)
+
+                if text_width <= max_width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = char
+
+            if current_line:
+                lines.append(current_line)
+        else:
+            # 英文文本按单词换行
+            words = text.split()
+            current_line = ""
+
+            for word in words:
+                test_line = current_line + (" " if current_line else "") + word
+                text_width, _ = self._calculate_text_size(test_line, font)
+
+                if text_width <= max_width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+
+            if current_line:
+                lines.append(current_line)
+
         return lines
+
+    def _contains_chinese(self, text: str) -> bool:
+        """检查文本是否包含中文字符"""
+        for char in text:
+            if '\u4e00' <= char <= '\u9fff':
+                return True
+        return False
     
     async def render_main_page(self, help_page: HelpPage) -> bytes:
         """渲染主页"""
         try:
             plugins = help_page.visible_plugins
             config = self.render_config
-            theme = config.theme
+            theme = config.theme or ThemeConfig.light_theme()  # 确保theme不为None
             
             # 计算布局
             cols = 2
@@ -160,13 +247,10 @@ class HelpImageRenderer:
                                x: int, y: int, width: int, height: int, index: int):
         """绘制插件卡片"""
         config = self.render_config
-        theme = config.theme
+        theme = config.theme or ThemeConfig.light_theme()  # 确保theme不为None
         
         # 绘制卡片背景
-        self._draw_rounded_rectangle(
-            draw, (x, y, x + width, y + height),
-            config.border_radius, theme.card_background, theme.border_color
-        )
+        self._draw_rectangle(draw, (x, y, x + width, y + height), theme.card_background, theme.border_color)
         
         # 绘制序号
         index_font = self._get_font(config.subtitle_font_size)
@@ -209,7 +293,7 @@ class HelpImageRenderer:
         """渲染插件详情"""
         try:
             config = self.render_config
-            theme = config.theme
+            theme = config.theme or ThemeConfig.light_theme()  # 确保theme不为None
             
             # 计算内容高度
             header_height = 120
@@ -277,13 +361,10 @@ class HelpImageRenderer:
                                 x: int, y: int, width: int, height: int, index: int):
         """绘制命令项"""
         config = self.render_config
-        theme = config.theme
+        theme = config.theme or ThemeConfig.light_theme()  # 确保theme不为None
         
         # 绘制背景
-        self._draw_rounded_rectangle(
-            draw, (x, y, x + width, y + height),
-            config.border_radius, theme.card_background, theme.border_color
-        )
+        self._draw_rectangle(draw, (x, y, x + width, y + height), theme.card_background, theme.border_color)
         
         # 绘制序号
         index_font = self._get_font(config.subtitle_font_size)
@@ -317,10 +398,7 @@ class HelpImageRenderer:
             tag_x -= admin_width
             
             # 绘制标签背景
-            self._draw_rounded_rectangle(
-                draw, (tag_x - 5, tag_y - 2, tag_x + admin_width + 5, tag_y + admin_height + 2),
-                3, theme.primary_color
-            )
+            self._draw_rectangle(draw, (tag_x - 5, tag_y - 2, tag_x + admin_width + 5, tag_y + admin_height + 2), theme.primary_color)
             
             draw.text((tag_x, tag_y), admin_text, fill=theme.background_color, font=tag_font)
     
@@ -328,7 +406,7 @@ class HelpImageRenderer:
         """渲染命令详情"""
         try:
             config = self.render_config
-            theme = config.theme
+            theme = config.theme or ThemeConfig.light_theme()  # 确保theme不为None
             
             # 计算内容高度
             base_height = 200
@@ -381,10 +459,7 @@ class HelpImageRenderer:
                 usage_x = (config.width - usage_width) // 2
                 
                 # 绘制用法背景
-                self._draw_rounded_rectangle(
-                    draw, (usage_x - 10, content_y - 5, usage_x + usage_width + 10, content_y + usage_height + 5),
-                    config.border_radius, theme.card_background, theme.border_color
-                )
+                self._draw_rectangle(draw, (usage_x - 10, content_y - 5, usage_x + usage_width + 10, content_y + usage_height + 5), theme.card_background, theme.border_color)
                 
                 draw.text((usage_x, content_y), usage_text, fill=theme.primary_color, font=usage_font)
                 content_y += usage_height + 20

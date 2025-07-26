@@ -225,9 +225,10 @@ class PicMenuPlugin(Star):
 
         return None
 
-    @filter.command("help")
+    @filter.command("help", priority=1000)  # 设置极高优先级，确保拦截astrbot的help命令
     async def help_command(self, event: AstrMessageEvent, query: str = ""):
-        """显示帮助信息"""
+        """显示帮助信息 - PicMenu版本，拦截astrbot的help命令"""
+        logger.info(f"PicMenu拦截help命令: query='{query}'")
         try:
             user_id = event.get_sender_id()
             show_hidden = self.can_see_hidden(user_id)
@@ -240,15 +241,18 @@ class PicMenuPlugin(Star):
 
             if not plugin_query:
                 # 显示主页
-                await self.show_main_page(event, plugins, show_hidden)
+                async for result in self.show_main_page(event, plugins, show_hidden):
+                    yield result
             elif not command_query:
                 # 显示插件详情
-                await self.show_plugin_detail(event, plugin_query, plugins, show_hidden)
+                async for result in self.show_plugin_detail(event, plugin_query, plugins, show_hidden):
+                    yield result
             else:
                 # 显示命令详情
-                await self.show_command_detail(
+                async for result in self.show_command_detail(
                     event, plugin_query, command_query, plugins, show_hidden
-                )
+                ):
+                    yield result
 
         except Exception as e:
             logger.error(f"处理帮助命令失败: {e}")
@@ -397,15 +401,19 @@ class PicMenuPlugin(Star):
             logger.error(f"显示命令详情失败: {e}")
             yield event.plain_result("❌ 生成命令详情时出现错误")
 
-    @filter.command("帮助")
+    @filter.command("帮助", priority=1000)  # 设置极高优先级
     async def help_alias(self, event: AstrMessageEvent, query: str = ""):
-        """帮助命令的中文别名"""
-        await self.help_command(event, query)
+        """帮助命令的中文别名 - PicMenu版本"""
+        logger.info(f"PicMenu拦截帮助命令: query='{query}'")
+        async for result in self.help_command(event, query):
+            yield result
 
-    @filter.command("菜单")
+    @filter.command("菜单", priority=1000)  # 设置极高优先级
     async def menu_alias(self, event: AstrMessageEvent, query: str = ""):
-        """菜单命令别名"""
-        await self.help_command(event, query)
+        """菜单命令别名 - PicMenu版本"""
+        logger.info(f"PicMenu拦截菜单命令: query='{query}'")
+        async for result in self.help_command(event, query):
+            yield result
 
     @filter.command("picmenu_status")
     async def status_command(self, event: AstrMessageEvent):
